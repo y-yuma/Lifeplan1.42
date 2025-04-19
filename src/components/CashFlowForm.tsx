@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSimulatorStore } from '@/store/simulator';
-import { Download, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { Download, ChevronDown, ChevronUp } from 'lucide-react';
 import { 
   MAIN_CATEGORIES,
   INCOME_CATEGORIES, 
@@ -63,12 +63,6 @@ function getLifeEventDescription(
   return events.join('、');
 }
 
-// カテゴリー情報を取得するヘルパー関数
-function getCategoryName(categoryId: string, categoryList: { id: string; name: string }[]): string {
-  const category = categoryList.find(cat => cat.id === categoryId);
-  return category ? category.name : 'その他';
-}
-
 export function CashFlowForm() {
   const { 
     basicInfo, 
@@ -78,15 +72,12 @@ export function CashFlowForm() {
     expenseData,
     assetData,
     liabilityData,
-    displaySettings,
-    toggleCategoryDisplay,
-    setAllCategoriesDisplay,
     setCurrentStep,
     syncCashFlowFromFormData,
   } = useSimulatorStore();
   
   // コンポーネントの状態
-  const [expandedSections, setExpandedSections] = React.useState({
+  const [expandedSections, setExpandedSections] = useState({
     personalIncome: true,
     personalExpense: true,
     personalAsset: true,
@@ -95,6 +86,14 @@ export function CashFlowForm() {
     corporateExpense: true,
     corporateAsset: true,
     corporateLiability: true,
+  });
+
+  // カテゴリ表示管理の状態
+  const [categoryVisibility, setCategoryVisibility] = useState({
+    income: { income: true, other: true },
+    expense: { living: true, housing: true, other: true },
+    asset: { asset: true, other: true },
+    liability: { liability: true, other: true }
   });
   
   const yearsUntilDeath = basicInfo.deathAge - basicInfo.currentAge;
@@ -175,7 +174,8 @@ export function CashFlowForm() {
     setCurrentStep(5);
   };
 
-  const inputStyle = "w-24 text-right border border-gray-200 rounded-md px-2 py-1";
+  // 入力フィールドのスタイル - コンパクトに調整
+  const inputStyle = "w-20 text-right border border-gray-200 rounded-md px-1 py-0.5 text-xs";
 
   // カテゴリーの色を取得する関数
   const getCategoryColor = (categoryId: string): string => {
@@ -193,19 +193,29 @@ export function CashFlowForm() {
     return colorMap[categoryId] || '#9E9E9E'; // デフォルトはグレー
   };
 
-  // カテゴリーのタイトル部分を表示する
-  const renderCategoryHeader = (categoryId: string, categoryList: { id: string; name: string }[], itemCount: number) => {
-    const category = categoryList.find(cat => cat.id === categoryId);
-    return (
-      <tr className="bg-gray-100">
-        <td colSpan={years.length + 3} className="px-4 py-2 font-medium text-gray-700">
-          <div className="flex items-center">
-            <span className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
-            {category ? category.name : 'その他'} ({itemCount}項目)
-          </div>
-        </td>
-      </tr>
-    );
+  // カテゴリの表示・非表示を切り替える関数
+  const toggleCategoryVisibility = (dataType: keyof typeof categoryVisibility, categoryId: string) => {
+    setCategoryVisibility(prev => ({
+      ...prev,
+      [dataType]: {
+        ...prev[dataType],
+        [categoryId]: !prev[dataType][categoryId]
+      }
+    }));
+  };
+
+  // すべてのカテゴリの表示・非表示を設定する関数
+  const setAllCategoriesVisibility = (dataType: keyof typeof categoryVisibility, visible: boolean) => {
+    const categories = { ...categoryVisibility[dataType] };
+    
+    Object.keys(categories).forEach(key => {
+      categories[key] = visible;
+    });
+    
+    setCategoryVisibility(prev => ({
+      ...prev,
+      [dataType]: categories
+    }));
   };
 
   // セクションの展開・折りたたみを切り替える
@@ -216,10 +226,11 @@ export function CashFlowForm() {
     });
   };
 
-  // カテゴリーグループの処理
-  const getCategoryGroups = (
+  // 指定されたカテゴリに属する項目を取得する関数
+  const getItemsByCategory = (
     section: 'personal' | 'corporate',
-    dataType: 'income' | 'expense' | 'asset' | 'liability'
+    dataType: 'income' | 'expense' | 'asset' | 'liability',
+    categoryId: string
   ) => {
     const dataMap = {
       'income': incomeData,
@@ -228,119 +239,22 @@ export function CashFlowForm() {
       'liability': liabilityData,
     };
     
-    const categoryMap = {
-      'income': INCOME_CATEGORIES,
-      'expense': EXPENSE_CATEGORIES,
-      'asset': ASSET_CATEGORIES,
-      'liability': LIABILITY_CATEGORIES,
-    };
-    
     const data = dataMap[dataType][section];
-    const categories = categoryMap[dataType];
-    
-    // カテゴリーごとにグループ化
-    const groups: { [key: string]: any[] } = {};
-    
-    // 表示されているカテゴリーのみを対象に
-    data.forEach(item => {
-      // displaySettings が未定義または displaySettings[`${dataType}Categories`] が未定義の場合、
-      // デフォルトですべて表示
-      const categorySettings = displaySettings && displaySettings[`${dataType}Categories`];
-      const isVisible = !categorySettings || categorySettings[item.category || 'other'] !== false;
-      
-      if (isVisible) {
-        const categoryId = item.category || 'other';
-        if (!groups[categoryId]) {
-          groups[categoryId] = [];
-        }
-        groups[categoryId].push(item);
-      }
-    });
-    
-    return { groups, categories };
-  };
-
-  // カテゴリーの表示・非表示切り替えボタン
-  const renderCategoryFilters = (dataType: 'income' | 'expense' | 'asset' | 'liability') => {
-    const categoryMap = {
-      'income': INCOME_CATEGORIES,
-      'expense': EXPENSE_CATEGORIES,
-      'asset': ASSET_CATEGORIES,
-      'liability': LIABILITY_CATEGORIES,
-    };
-    
-    const categories = categoryMap[dataType];
-    
-    // displaySettings が未定義の場合、デフォルト設定を作成
-    const defaultSettings: {[key: string]: boolean} = {};
-    categories.forEach(cat => {
-      defaultSettings[cat.id] = true;
-    });
-    
-    // displaySettings が undefined の場合、デフォルト設定を使用
-    const settings = displaySettings && displaySettings[`${dataType}Categories`] 
-      ? displaySettings[`${dataType}Categories`] 
-      : defaultSettings;
-    
-    return (
-      <div className="mb-4">
-        <div className="flex items-center space-x-2 mb-2">
-          <span className="text-sm font-medium">カテゴリー表示:</span>
-          <button
-            type="button"
-            onClick={() => setAllCategoriesDisplay(dataType, true)}
-            className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200"
-          >
-            すべて表示
-          </button>
-          <button
-            type="button"
-            onClick={() => setAllCategoriesDisplay(dataType, false)}
-            className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-          >
-            すべて非表示
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {categories.map(category => (
-            <button
-              key={category.id}
-              type="button"
-              onClick={() => toggleCategoryDisplay(dataType, category.id)}
-              className={`flex items-center px-2 py-1 text-xs rounded ${
-                settings[category.id] !== false
-                  ? 'bg-blue-100 text-blue-800 hover:bg-blue-200' 
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-              }`}
-            >
-              {settings[category.id] !== false ? <Eye className="h-3 w-3 mr-1" /> : <EyeOff className="h-3 w-3 mr-1" />}
-              {category.name}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
+    return data.filter(item => (item.category || 'other') === categoryId);
   };
 
   const renderPersonalTable = () => {
-    const sections = [
-      { title: '収入', dataType: 'income' as const, expanded: expandedSections.personalIncome },
-      { title: '支出', dataType: 'expense' as const, expanded: expandedSections.personalExpense },
-      { title: '資産', dataType: 'asset' as const, expanded: expandedSections.personalAsset },
-      { title: '負債', dataType: 'liability' as const, expanded: expandedSections.personalLiability },
-    ];
-
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <h3 className="text-lg font-semibold">個人キャッシュフロー</h3>
         
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-500 sticky left-0 bg-gray-50">項目</th>
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-500 sticky left-0 bg-gray-50 min-w-[150px]">項目</th>
                 {years.map(year => (
-                  <th key={year} className="px-4 py-2 text-right text-sm font-medium text-gray-500">
+                  <th key={year} className="px-2 py-1 text-right text-xs font-medium text-gray-500">
                     {year}年
                   </th>
                 ))}
@@ -348,117 +262,350 @@ export function CashFlowForm() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               <tr>
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-white">年齢</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">年齢</td>
                 {years.map(year => (
-                  <td key={year} className="px-4 py-2 text-right text-sm text-gray-900">
+                  <td key={year} className="px-2 py-1 text-right text-xs text-gray-900">
                     {calculateAge(basicInfo.startYear, basicInfo.currentAge, year)}歳
                   </td>
                 ))}
               </tr>
               <tr>
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-white">イベント</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">イベント</td>
                 {years.map(year => (
-                  <td key={year} className="px-4 py-2 text-right text-xs text-gray-600">
+                  <td key={year} className="px-2 py-1 text-right text-xs text-gray-600">
                     {getLifeEventDescription(year, basicInfo, lifeEvents, 'personal')}
                   </td>
                 ))}
               </tr>
               
-              {/* 各セクションをレンダリング */}
-              {sections.map(section => (
-                <React.Fragment key={section.title}>
-                  {/* セクションヘッダー */}
-                  <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection(`personal${section.dataType.charAt(0).toUpperCase() + section.dataType.slice(1)}` as keyof typeof expandedSections)}>
-                    <td colSpan={years.length + 1} className="px-4 py-2 sticky left-0 bg-blue-50">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-blue-800">{section.title}</span>
-                        {section.expanded ? 
-                          <ChevronUp className="h-4 w-4 text-blue-800" /> : 
-                          <ChevronDown className="h-4 w-4 text-blue-800" />
-                        }
+              {/* 収入セクション */}
+              <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection('personalIncome')}>
+                <td colSpan={years.length + 1} className="px-2 py-1 sticky left-0 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-800 text-xs">収入</span>
+                    {expandedSections.personalIncome ? 
+                      <ChevronUp className="h-3 w-3 text-blue-800" /> : 
+                      <ChevronDown className="h-3 w-3 text-blue-800" />
+                    }
+                  </div>
+                </td>
+              </tr>
+              
+              {expandedSections.personalIncome && (
+                <>
+                  {/* 収入カテゴリ別アイテム */}
+                  {Object.entries(categoryVisibility.income).map(([categoryId, isVisible]) => {
+                    if (!isVisible) return null;
+                    
+                    const items = getItemsByCategory('personal', 'income', categoryId);
+                    if (items.length === 0) return null;
+                    
+                    return items.map(item => (
+                      <tr key={item.id}>
+                        <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                          <div className="flex items-center">
+                            <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                            {item.name}（万円）
+                          </div>
+                        </td>
+                        {years.map(year => (
+                          <td key={year} className="px-1 py-1 text-right text-xs">
+                            <input
+                              type="number"
+                              value={item.amounts[year] || ''}
+                              onChange={(e) => {
+                                const value = e.target.value === '' ? 0 : Number(e.target.value);
+                                if (!isNaN(value)) {
+                                  item.amounts[year] = value;
+                                  syncCashFlowFromFormData();
+                                }
+                              }}
+                              className={inputStyle}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ));
+                  })}
+                </>
+              )}
+              
+              {/* 支出セクション */}
+              <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection('personalExpense')}>
+                <td colSpan={years.length + 1} className="px-2 py-1 sticky left-0 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-800 text-xs">支出</span>
+                    {expandedSections.personalExpense ? 
+                      <ChevronUp className="h-3 w-3 text-blue-800" /> : 
+                      <ChevronDown className="h-3 w-3 text-blue-800" />
+                    }
+                  </div>
+                </td>
+              </tr>
+              
+              {expandedSections.personalExpense && (
+                <>
+                  {/* 生活費 */}
+                  <tr className="bg-gray-100">
+                    <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                      <div className="flex items-center">
+                        <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('living') }}></span>
+                        生活費
                       </div>
                     </td>
                   </tr>
-                  
-                  {section.expanded && (
-                    <>
-                      {/* カテゴリーフィルター */}
-                      <tr>
-                        <td colSpan={years.length + 1} className="px-4 py-2 bg-gray-50 sticky left-0">
-                          {renderCategoryFilters(section.dataType)}
+                  {getItemsByCategory('personal', 'expense', 'living').map(item => (
+                    <tr key={item.id}>
+                      <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                        <div className="flex items-center">
+                          <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('living') }}></span>
+                          {item.name}（万円）
+                        </div>
+                      </td>
+                      {years.map(year => (
+                        <td key={year} className="px-1 py-1 text-right text-xs">
+                          <input
+                            type="number"
+                            value={item.amounts[year] || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : Number(e.target.value);
+                              if (!isNaN(value)) {
+                                item.amounts[year] = value;
+                                syncCashFlowFromFormData();
+                              }
+                            }}
+                            className={inputStyle}
+                          />
                         </td>
-                      </tr>
-                      
-                      {/* カテゴリーごとにグループ化したアイテム */}
-                      {(() => {
-                        const { groups, categories } = getCategoryGroups('personal', section.dataType);
-                        
-                        // カテゴリーごとのレンダリング
-                        return Object.entries(groups).map(([categoryId, items]) => (
-                          <React.Fragment key={categoryId}>
-                            {/* カテゴリーヘッダー */}
-                            {renderCategoryHeader(categoryId, categories, items.length)}
-                            
-                            {/* カテゴリー内の項目 */}
-                            {items.map(item => (
-                              <tr key={item.id}>
-                                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-white">
-                                  <div className="flex items-center">
-                                    <span className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
-                                    {item.name}（万円）
-                                  </div>
-                                </td>
-                                {years.map(year => (
-                                  <td key={year} className="px-4 py-2 text-right text-sm">
-                                    <input
-                                      type="number"
-                                      value={item.amounts[year] || ''}
-                                      onChange={(e) => {
-                                        const value = e.target.value === '' ? 0 : Number(e.target.value);
-                                        if (!isNaN(value)) {
-                                          item.amounts[year] = value;
-                                          syncCashFlowFromFormData();
-                                        }
-                                      }}
-                                      className={inputStyle}
-                                    />
-                                  </td>
-                                ))}
-                              </tr>
+                      ))}
+                    </tr>
+                  ))}
+                  
+                  {/* 住居費 */}
+                  <tr className="bg-gray-100">
+                    <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                      <div className="flex items-center">
+                        <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('housing') }}></span>
+                        住居費
+                      </div>
+                    </td>
+                  </tr>
+                  {getItemsByCategory('personal', 'expense', 'housing').map(item => (
+                    <tr key={item.id}>
+                      <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                        <div className="flex items-center">
+                          <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('housing') }}></span>
+                          {item.name}（万円）
+                        </div>
+                      </td>
+                      {years.map(year => (
+                        <td key={year} className="px-1 py-1 text-right text-xs">
+                          <input
+                            type="number"
+                            value={item.amounts[year] || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : Number(e.target.value);
+                              if (!isNaN(value)) {
+                                item.amounts[year] = value;
+                                syncCashFlowFromFormData();
+                              }
+                            }}
+                            className={inputStyle}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  
+                  {/* その他支出 */}
+                  <tr className="bg-gray-100">
+                    <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                      <div className="flex items-center">
+                        <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('other') }}></span>
+                        その他
+                      </div>
+                    </td>
+                  </tr>
+                  {getItemsByCategory('personal', 'expense', 'other').map(item => (
+                    <tr key={item.id}>
+                      <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                        <div className="flex items-center">
+                          <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('other') }}></span>
+                          {item.name}（万円）
+                        </div>
+                      </td>
+                      {years.map(year => (
+                        <td key={year} className="px-1 py-1 text-right text-xs">
+                          <input
+                            type="number"
+                            value={item.amounts[year] || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : Number(e.target.value);
+                              if (!isNaN(value)) {
+                                item.amounts[year] = value;
+                                syncCashFlowFromFormData();
+                              }
+                            }}
+                            className={inputStyle}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </>
+              )}
+              
+              {/* 資産セクション */}
+              <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection('personalAsset')}>
+                <td colSpan={years.length + 1} className="px-2 py-1 sticky left-0 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-800 text-xs">資産</span>
+                    {expandedSections.personalAsset ? 
+                      <ChevronUp className="h-3 w-3 text-blue-800" /> : 
+                      <ChevronDown className="h-3 w-3 text-blue-800" />
+                    }
+                  </div>
+                </td>
+              </tr>
+              
+              {expandedSections.personalAsset && (
+                <>
+                  {Object.entries(categoryVisibility.asset).map(([categoryId, isVisible]) => {
+                    if (!isVisible) return null;
+                    
+                    const items = getItemsByCategory('personal', 'asset', categoryId);
+                    if (items.length === 0) return null;
+                    
+                    return (
+                      <React.Fragment key={categoryId}>
+                        <tr className="bg-gray-100">
+                          <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                            <div className="flex items-center">
+                              <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                              {categoryId === 'asset' ? '資産' : 'その他'}
+                            </div>
+                          </td>
+                        </tr>
+                        {items.map(item => (
+                          <tr key={item.id}>
+                            <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                              <div className="flex items-center">
+                                <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                                {item.name}（万円）
+                              </div>
+                            </td>
+                            {years.map(year => (
+                              <td key={year} className="px-1 py-1 text-right text-xs">
+                                <input
+                                  type="number"
+                                  value={item.amounts[year] || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value === '' ? 0 : Number(e.target.value);
+                                    if (!isNaN(value)) {
+                                      item.amounts[year] = value;
+                                      syncCashFlowFromFormData();
+                                    }
+                                  }}
+                                  className={inputStyle}
+                                />
+                              </td>
                             ))}
-                          </React.Fragment>
-                        ));
-                      })()}
-                    </>
-                  )}
-                </React.Fragment>
-              ))}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                </>
+              )}
+              
+              {/* 負債セクション */}
+              <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection('personalLiability')}>
+                <td colSpan={years.length + 1} className="px-2 py-1 sticky left-0 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-800 text-xs">負債</span>
+                    {expandedSections.personalLiability ? 
+                      <ChevronUp className="h-3 w-3 text-blue-800" /> : 
+                      <ChevronDown className="h-3 w-3 text-blue-800" />
+                    }
+                  </div>
+                </td>
+              </tr>
+              
+              {expandedSections.personalLiability && (
+                <>
+                  {Object.entries(categoryVisibility.liability).map(([categoryId, isVisible]) => {
+                    if (!isVisible) return null;
+                    
+                    const items = getItemsByCategory('personal', 'liability', categoryId);
+                    if (items.length === 0) return null;
+                    
+                    return (
+                      <React.Fragment key={categoryId}>
+                        <tr className="bg-gray-100">
+                          <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                            <div className="flex items-center">
+                              <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                              {categoryId === 'liability' ? '負債' : 'その他'}
+                            </div>
+                          </td>
+                        </tr>
+                        {items.map(item => (
+                          <tr key={item.id}>
+                            <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                              <div className="flex items-center">
+                                <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                                {item.name}（万円）
+                              </div>
+                            </td>
+                            {years.map(year => (
+                              <td key={year} className="px-1 py-1 text-right text-xs">
+                                <input
+                                  type="number"
+                                  value={item.amounts[year] || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value === '' ? 0 : Number(e.target.value);
+                                    if (!isNaN(value)) {
+                                      item.amounts[year] = value;
+                                      syncCashFlowFromFormData();
+                                    }
+                                  }}
+                                  className={inputStyle}
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                </>
+              )}
               
               {/* 合計値 */}
               <tr className="bg-gray-50 font-medium">
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-gray-50">収支</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-gray-50">収支</td>
                 {years.map(year => {
                   const balance = cashFlow[year]?.personalBalance || 0;
                   return (
-                    <td key={year} className={`px-4 py-2 text-right text-sm ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <td key={year} className={`px-2 py-1 text-right text-xs ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {balance}万円
                     </td>
                   );
                 })}
               </tr>
               <tr className="bg-gray-50 font-medium">
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-gray-50">総資産</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-gray-50">総資産</td>
                 {years.map(year => {
                   const assets = cashFlow[year]?.personalTotalAssets || 0;
                   return (
-                    <td key={year} className={`px-4 py-2 text-right text-sm ${assets >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <td key={year} className={`px-2 py-1 text-right text-xs ${assets >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {assets}万円
                     </td>
                   );
                 })}
               </tr>
               <tr className="bg-gray-50 font-medium">
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-gray-50">純資産</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-gray-50">純資産</td>
                 {years.map(year => {
                   const totalAssets = cashFlow[year]?.personalTotalAssets || 0;
                   const liabilities = liabilityData.personal.reduce((total, liability) => {
@@ -466,7 +613,7 @@ export function CashFlowForm() {
                   }, 0);
                   const netAssets = totalAssets - liabilities;
                   return (
-                    <td key={year} className={`px-4 py-2 text-right text-sm ${netAssets >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <td key={year} className={`px-2 py-1 text-right text-xs ${netAssets >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {netAssets}万円
                     </td>
                   );
@@ -480,24 +627,17 @@ export function CashFlowForm() {
   };
 
   const renderCorporateTable = () => {
-    const sections = [
-      { title: '収入', dataType: 'income' as const, expanded: expandedSections.corporateIncome },
-      { title: '支出', dataType: 'expense' as const, expanded: expandedSections.corporateExpense },
-      { title: '資産', dataType: 'asset' as const, expanded: expandedSections.corporateAsset },
-      { title: '負債', dataType: 'liability' as const, expanded: expandedSections.corporateLiability },
-    ];
-
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <h3 className="text-lg font-semibold">法人キャッシュフロー</h3>
         
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-500 sticky left-0 bg-gray-50">項目</th>
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-500 sticky left-0 bg-gray-50 min-w-[150px]">項目</th>
                 {years.map(year => (
-                  <th key={year} className="px-4 py-2 text-right text-sm font-medium text-gray-500">
+                  <th key={year} className="px-2 py-1 text-right text-xs font-medium text-gray-500">
                     {year}年
                   </th>
                 ))}
@@ -505,109 +645,341 @@ export function CashFlowForm() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               <tr>
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-white">イベント</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">イベント</td>
                 {years.map(year => (
-                  <td key={year} className="px-4 py-2 text-right text-xs text-gray-600">
+                  <td key={year} className="px-2 py-1 text-right text-xs text-gray-600">
                     {getLifeEventDescription(year, basicInfo, lifeEvents, 'corporate')}
                   </td>
                 ))}
               </tr>
               
-              {/* 各セクションをレンダリング */}
-              {sections.map(section => (
-                <React.Fragment key={section.title}>
-                  {/* セクションヘッダー */}
-                  <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection(`corporate${section.dataType.charAt(0).toUpperCase() + section.dataType.slice(1)}` as keyof typeof expandedSections)}>
-                    <td colSpan={years.length + 1} className="px-4 py-2 sticky left-0 bg-blue-50">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-blue-800">{section.title}</span>
-                        {section.expanded ? 
-                          <ChevronUp className="h-4 w-4 text-blue-800" /> : 
-                          <ChevronDown className="h-4 w-4 text-blue-800" />
-                        }
+              {/* 収入セクション */}
+              <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection('corporateIncome')}>
+                <td colSpan={years.length + 1} className="px-2 py-1 sticky left-0 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-800 text-xs">収入</span>
+                    {expandedSections.corporateIncome ? 
+                      <ChevronUp className="h-3 w-3 text-blue-800" /> : 
+                      <ChevronDown className="h-3 w-3 text-blue-800" />
+                    }
+                  </div>
+                </td>
+              </tr>
+              
+              {expandedSections.corporateIncome && (
+                <>
+                  {Object.entries(categoryVisibility.income).map(([categoryId, isVisible]) => {
+                    if (!isVisible) return null;
+                    
+                    const items = getItemsByCategory('corporate', 'income', categoryId);
+                    if (items.length === 0) return null;
+                    
+                    return items.map(item => (
+                      <tr key={item.id}>
+                        <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                          <div className="flex items-center">
+                            <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                            {item.name}（万円）
+                          </div>
+                        </td>
+                        {years.map(year => (
+                          <td key={year} className="px-1 py-1 text-right text-xs">
+                            <input
+                              type="number"
+                              value={item.amounts[year] || ''}
+                              onChange={(e) => {
+                                const value = e.target.value === '' ? 0 : Number(e.target.value);
+                                if (!isNaN(value)) {
+                                  item.amounts[year] = value;
+                                  syncCashFlowFromFormData();
+                                }
+                              }}
+                              className={inputStyle}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ));
+                  })}
+                </>
+              )}
+              
+              {/* 支出セクション */}
+              <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection('corporateExpense')}>
+                <td colSpan={years.length + 1} className="px-2 py-1 sticky left-0 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-800 text-xs">支出</span>
+                    {expandedSections.corporateExpense ? 
+                      <ChevronUp className="h-3 w-3 text-blue-800" /> : 
+                      <ChevronDown className="h-3 w-3 text-blue-800" />
+                    }
+                  </div>
+                </td>
+              </tr>
+              
+              {expandedSections.corporateExpense && (
+                <>
+                  {/* 生活費 */}
+                  <tr className="bg-gray-100">
+                    <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                      <div className="flex items-center">
+                        <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('living') }}></span>
+                        生活費
                       </div>
                     </td>
                   </tr>
-                  
-                  {section.expanded && (
-                    <>
-                      {/* カテゴリーフィルター */}
-                      <tr>
-                        <td colSpan={years.length + 1} className="px-4 py-2 bg-gray-50 sticky left-0">
-                          {renderCategoryFilters(section.dataType)}
+                  {getItemsByCategory('corporate', 'expense', 'living').map(item => (
+                    <tr key={item.id}>
+                      <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                        <div className="flex items-center">
+                          <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('living') }}></span>
+                          {item.name}（万円）
+                        </div>
+                      </td>
+                      {years.map(year => (
+                        <td key={year} className="px-1 py-1 text-right text-xs">
+                          <input
+                            type="number"
+                            value={item.amounts[year] || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : Number(e.target.value);
+                              if (!isNaN(value)) {
+                                item.amounts[year] = value;
+                                syncCashFlowFromFormData();
+                              }
+                            }}
+                            className={inputStyle}
+                          />
                         </td>
-                      </tr>
-                      
-                      {/* カテゴリーごとにグループ化したアイテム */}
-                      {(() => {
-                        const { groups, categories } = getCategoryGroups('corporate', section.dataType);
-                        
-                        // カテゴリーごとのレンダリング
-                        return Object.entries(groups).map(([categoryId, items]) => (
-                          <React.Fragment key={categoryId}>
-                            {/* カテゴリーヘッダー */}
-                            {renderCategoryHeader(categoryId, categories, items.length)}
-                            
-                            {/* カテゴリー内の項目 */}
-                            {items.map(item => (
-                              <tr key={item.id}>
-                                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-white">
-                                  <div className="flex items-center">
-                                    <span className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
-                                    {item.name}（万円）
-                                  </div>
-                                </td>
-                                {years.map(year => (
-                                  <td key={year} className="px-4 py-2 text-right text-sm">
-                                    <input
-                                      type="number"
-                                      value={item.amounts[year] || ''}
-                                      onChange={(e) => {
-                                        const value = e.target.value === '' ? 0 : Number(e.target.value);
-                                        if (!isNaN(value)) {
-                                          item.amounts[year] = value;
-                                          syncCashFlowFromFormData();
-                                        }
-                                      }}
-                                      className={inputStyle}
-                                    />
-                                  </td>
-                                ))}
-                              </tr>
+                      ))}
+                    </tr>
+                  ))}
+                  
+                  {/* 住居費 */}
+                  <tr className="bg-gray-100">
+                    <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                      <div className="flex items-center">
+                        <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('housing') }}></span>
+                        住居費
+                      </div>
+                    </td>
+                  </tr>
+                  {getItemsByCategory('corporate', 'expense', 'housing').map(item => (
+                    <tr key={item.id}>
+                      <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                        <div className="flex items-center">
+                          <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('housing') }}></span>
+                          {item.name}（万円）
+                        </div>
+                      </td>
+                      {years.map(year => (
+                        <td key={year} className="px-1 py-1 text-right text-xs">
+                          <input
+                            type="number"
+                            value={item.amounts[year] || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : Number(e.target.value);
+                              if (!isNaN(value)) {
+                                item.amounts[year] = value;
+                                syncCashFlowFromFormData();
+                              }
+                            }}
+                            className={inputStyle}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  
+                  {/* その他支出 */}
+                  <tr className="bg-gray-100">
+                    <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                      <div className="flex items-center">
+                        <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('other') }}></span>
+                        その他
+                      </div>
+                    </td>
+                  </tr>
+                  {getItemsByCategory('corporate', 'expense', 'other').map(item => (
+                    <tr key={item.id}>
+                      <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                        <div className="flex items-center">
+                          <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor('other') }}></span>
+                          {item.name}（万円）
+                        </div>
+                      </td>
+                      {years.map(year => (
+                        <td key={year} className="px-1 py-1 text-right text-xs">
+                          <input
+                            type="number"
+                            value={item.amounts[year] || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : Number(e.target.value);
+                              if (!isNaN(value)) {
+                                item.amounts[year] = value;
+                                syncCashFlowFromFormData();
+                              }
+                            }}
+                            className={inputStyle}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </>
+              )}
+              
+              {/* 資産セクション */}
+              <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection('corporateAsset')}>
+                <td colSpan={years.length + 1} className="px-2 py-1 sticky left-0 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-800 text-xs">資産</span>
+                    {expandedSections.corporateAsset ? 
+                      <ChevronUp className="h-3 w-3 text-blue-800" /> : 
+                      <ChevronDown className="h-3 w-3 text-blue-800" />
+                    }
+                  </div>
+                </td>
+              </tr>
+              
+              {expandedSections.corporateAsset && (
+                <>
+                  {Object.entries(categoryVisibility.asset).map(([categoryId, isVisible]) => {
+                    if (!isVisible) return null;
+                    
+                    const items = getItemsByCategory('corporate', 'asset', categoryId);
+                    if (items.length === 0) return null;
+                    
+                    return (
+                      <React.Fragment key={categoryId}>
+                        <tr className="bg-gray-100">
+                          <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                            <div className="flex items-center">
+                              <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                              {categoryId === 'asset' ? '資産' : 'その他'}
+                            </div>
+                          </td>
+                        </tr>
+                        {items.map(item => (
+                          <tr key={item.id}>
+                            <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                              <div className="flex items-center">
+                                <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                                {item.name}（万円）
+                              </div>
+                            </td>
+                            {years.map(year => (
+                              <td key={year} className="px-1 py-1 text-right text-xs">
+                                <input
+                                  type="number"
+                                  value={item.amounts[year] || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value === '' ? 0 : Number(e.target.value);
+                                    if (!isNaN(value)) {
+                                      item.amounts[year] = value;
+                                      syncCashFlowFromFormData();
+                                    }
+                                  }}
+                                  className={inputStyle}
+                                />
+                              </td>
                             ))}
-                          </React.Fragment>
-                        ));
-                      })()}
-                    </>
-                  )}
-                </React.Fragment>
-              ))}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                </>
+              )}
+              
+              {/* 負債セクション */}
+              <tr className="bg-blue-50 cursor-pointer" onClick={() => toggleSection('corporateLiability')}>
+                <td colSpan={years.length + 1} className="px-2 py-1 sticky left-0 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-800 text-xs">負債</span>
+                    {expandedSections.corporateLiability ? 
+                      <ChevronUp className="h-3 w-3 text-blue-800" /> : 
+                      <ChevronDown className="h-3 w-3 text-blue-800" />
+                    }
+                  </div>
+                </td>
+              </tr>
+              
+              {expandedSections.corporateLiability && (
+                <>
+                  {Object.entries(categoryVisibility.liability).map(([categoryId, isVisible]) => {
+                    if (!isVisible) return null;
+                    
+                    const items = getItemsByCategory('corporate', 'liability', categoryId);
+                    if (items.length === 0) return null;
+                    
+                    return (
+                      <React.Fragment key={categoryId}>
+                        <tr className="bg-gray-100">
+                          <td colSpan={years.length + 1} className="px-2 py-1 font-medium text-gray-700 text-xs">
+                            <div className="flex items-center">
+                              <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                              {categoryId === 'liability' ? '負債' : 'その他'}
+                            </div>
+                          </td>
+                        </tr>
+                        {items.map(item => (
+                          <tr key={item.id}>
+                            <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-white">
+                              <div className="flex items-center">
+                                <span className="w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getCategoryColor(categoryId) }}></span>
+                                {item.name}（万円）
+                              </div>
+                            </td>
+                            {years.map(year => (
+                              <td key={year} className="px-1 py-1 text-right text-xs">
+                                <input
+                                  type="number"
+                                  value={item.amounts[year] || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value === '' ? 0 : Number(e.target.value);
+                                    if (!isNaN(value)) {
+                                      item.amounts[year] = value;
+                                      syncCashFlowFromFormData();
+                                    }
+                                  }}
+                                  className={inputStyle}
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                </>
+              )}
               
               {/* 合計値 */}
               <tr className="bg-gray-50 font-medium">
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-gray-50">収支</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-gray-50">収支</td>
                 {years.map(year => {
                   const balance = cashFlow[year]?.corporateBalance || 0;
                   return (
-                    <td key={year} className={`px-4 py-2 text-right text-sm ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <td key={year} className={`px-2 py-1 text-right text-xs ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {balance}万円
                     </td>
                   );
                 })}
               </tr>
               <tr className="bg-gray-50 font-medium">
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-gray-50">総資産</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-gray-50">総資産</td>
                 {years.map(year => {
                   const assets = cashFlow[year]?.corporateTotalAssets || 0;
                   return (
-                    <td key={year} className={`px-4 py-2 text-right text-sm ${assets >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <td key={year} className={`px-2 py-1 text-right text-xs ${assets >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {assets}万円
                     </td>
                   );
                 })}
               </tr>
               <tr className="bg-gray-50 font-medium">
-                <td className="px-4 py-2 text-sm text-gray-900 sticky left-0 bg-gray-50">純資産</td>
+                <td className="px-2 py-1 text-xs text-gray-900 sticky left-0 bg-gray-50">純資産</td>
                 {years.map(year => {
                   const totalAssets = cashFlow[year]?.corporateTotalAssets || 0;
                   const liabilities = liabilityData.corporate.reduce((total, liability) => {
@@ -615,7 +987,7 @@ export function CashFlowForm() {
                   }, 0);
                   const netAssets = totalAssets - liabilities;
                   return (
-                    <td key={year} className={`px-4 py-2 text-right text-sm ${netAssets >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <td key={year} className={`px-2 py-1 text-right text-xs ${netAssets >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {netAssets}万円
                     </td>
                   );
@@ -629,26 +1001,13 @@ export function CashFlowForm() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">キャッシュフロー</h2>
         <div className="flex gap-2">
           <button
-            onClick={() => {
-              // すべてのカテゴリーを表示
-              setAllCategoriesDisplay('income', true);
-              setAllCategoriesDisplay('expense', true);
-              setAllCategoriesDisplay('asset', true);
-              setAllCategoriesDisplay('liability', true);
-            }}
-            className="flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded hover:bg-blue-200 text-sm"
-          >
-            <Eye className="h-4 w-4" />
-            すべて表示
-          </button>
-          <button
             onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
+            className="flex items-center gap-2 px-3 py-1 text-sm bg-green-500 text-white rounded-md hover:bg-green-600"
           >
             <Download className="h-4 w-4" />
             CSVエクスポート
@@ -656,7 +1015,7 @@ export function CashFlowForm() {
         </div>
       </div>
 
-      <div className="space-y-8">
+      <div className="space-y-6">
         {renderPersonalTable()}
         {renderCorporateTable()}
       </div>
